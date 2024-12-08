@@ -1,0 +1,52 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function validateOrderData() {
+      let data = request.resource.data;
+      return data.keys().hasAll(['userId', 'items', 'total', 'status', 'customerInfo', 'paymentMethod']) &&
+        data.userId is string &&
+        data.userId == request.auth.uid && // Ensure user can only create orders for themselves
+        data.items is list &&
+        data.total is number &&
+        data.total >= 0 &&
+        data.status in ['pending', 'processing', 'completed'] &&
+        data.customerInfo is map &&
+        data.customerInfo.keys().hasAll(['name', 'email', 'address', 'city', 'pincode', 'phone']) &&
+        data.paymentMethod in ['cod', 'upi', 'card'];
+    }
+
+    // Orders collection rules
+    match /orders/{orderId} {
+      allow create: if isAuthenticated() && validateOrderData();
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow update: if isAuthenticated() && resource.data.userId == request.auth.uid && validateOrderData();
+      allow delete: if false;
+    }
+
+    // Products collection rules (read-only for authenticated users)
+    match /products/{productId} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+    }
+
+    // Categories collection rules (read-only for authenticated users)
+    match /categories/{categoryId} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+    }
+
+    // Default deny all other access
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
